@@ -1,9 +1,20 @@
 name: Docker Build and Push
 
+# Each run publishes the tag <timestamp>. After a run, update zabbixServer.zabbixServerHA.haLabelsSidecar.image.tag in
+# the Helm chart. See the "Release process" section of README.md.
 on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'tests/**'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
+      - '.github/CODEOWNERS'
+  workflow_dispatch:
 
 env:
   IMAGE_NAME: ghcr.io/zabbix-community/zabbix-server-ha-label-manager
@@ -27,26 +38,33 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BUILD_TIMESTAMP: ${{ needs.set-timestamp.outputs.build-timestamp }}
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and Push Multi-Arch Docker Image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
+          pull: true
           push: true
           tags: |
             ${{ env.IMAGE_NAME }}:${{ env.BUILD_TIMESTAMP }}

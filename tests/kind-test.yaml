@@ -1,0 +1,64 @@
+# Resources of the test of tests/kind-test.sh. The image of the sidecar is replaced by the script.
+# The "fake-zabbix-server" container simulates the processes of Zabbix Server: first 3 (standby HA node), then 8
+# (active HA node), then 3 again. The "ha-labels-sidecar" container must follow with the label of the pod.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ha-labels-sidecar-test
+---
+# Same permissions on pods of the Role "<release>-ha-helper" of the Zabbix Helm chart
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ha-labels-sidecar-test
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["patch", "get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ha-labels-sidecar-test
+subjects:
+  - kind: ServiceAccount
+    name: ha-labels-sidecar-test
+roleRef:
+  kind: Role
+  name: ha-labels-sidecar-test
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ha-labels-sidecar-test
+  labels:
+    app.kubernetes.io/name: ha-labels-sidecar-test
+spec:
+  serviceAccountName: ha-labels-sidecar-test
+  # Same setting of the Zabbix Server pods in HA mode: the sidecar sees the processes of the other containers
+  shareProcessNamespace: true
+  terminationGracePeriodSeconds: 30
+  containers:
+    - name: fake-zabbix-server
+      image: alpine:3.24
+      command:
+        - sh
+        - -c
+        - |
+          # "sh -c CMD zabbix_server" runs a process whose command line contains zabbix_server. The ":" after sleep
+          # prevents the shell from replacing itself with sleep
+          for i in 1 2 3; do sh -c 'sleep 3600; :' zabbix_server & done
+          echo "standby: 3 processes"; sleep 45
+          active=""
+          for i in 1 2 3 4 5; do sh -c 'sleep 3600; :' zabbix_server & active="$active $!"; done
+          echo "active: 8 processes"; sleep 45
+          kill $active
+          echo "standby again: 3 processes"
+          exec sleep 3600
+    - name: ha-labels-sidecar
+      image: zabbix-server-ha-label-manager:local
+      imagePullPolicy: IfNotPresent
+      env:
+        - name: LABEL_NAME
+          value: zabbix.com/server-ha-role
